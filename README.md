@@ -23,10 +23,24 @@ Features
 Nothing is saved while the project is clean, has never been saved to a file, or
 is stored in a database (backup mode only).
 
+Languages
+---------
+
+The interface follows the QGIS language setting (Settings → Options → General).
+Source strings are English; Hungarian is provided in `i18n/autoSaver_hu.ts`.
+Any other language falls back to English.
+
+To add a language, copy `i18n/autoSaver_hu.ts` to `i18n/autoSaver_<lang>.ts`,
+translate the `<translation>` entries, and compile it with Qt's `lrelease`
+(for example `pyside6-lrelease autoSaver_<lang>.ts -qm autoSaver_<lang>.qm`).
+The plugin loads `i18n/autoSaver_<lang>.qm` where `<lang>` is the two-letter
+code of the QGIS locale.
+
 Files
 -----
 
 * `__init__.py` – plugin entry point
 * `autosave.py` – plugin logic
 * `autosave_dialog.py` – settings dialog (built in code, no `.ui` file)
+* `i18n/` – translation sources (`.ts`) and compiled files (`.qm`)
 * `metadata.txt`, `icon.png`

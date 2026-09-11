@@ -10,11 +10,14 @@ autoSaver – QGIS plugin
 
 Runs on QGIS 3.16+ and QGIS 4 with either PyQt5 or PyQt6: only scoped enums
 are used and Qt-version-specific imports are guarded.
+
+User-facing strings are English; translations live in i18n/autoSaver_<lang>.qm
+and are picked by the QGIS interface language (Hungarian included).
 """
 
 import os
 
-from qgis.PyQt.QtCore import QCoreApplication, QEvent, QObject, QSettings, QTimer
+from qgis.PyQt.QtCore import QCoreApplication, QEvent, QLocale, QObject, QSettings, QTimer, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QApplication, QPushButton
 try:
@@ -22,7 +25,7 @@ try:
 except ImportError:
     from qgis.PyQt.QtWidgets import QAction    # Qt 5
 
-from qgis.core import Qgis, QgsProject, QgsVectorLayer
+from qgis.core import Qgis, QgsApplication, QgsProject, QgsVectorLayer
 
 from .autosave_dialog import autoSaverDialog
 
@@ -101,6 +104,9 @@ class autoSaver(QObject):
         self.statusAction = None    # toolbar countdown label
         self.dlg = None             # settings dialog, created on first use
 
+        self.translator = None
+        self._installTranslator()
+
         self.settings = load_settings()
         self.defaultIntervalMs = 0
 
@@ -152,17 +158,40 @@ class autoSaver(QObject):
     def tr(self, message):
         return QCoreApplication.translate("autoSaver", message)
 
+    def _installTranslator(self):
+        """Load i18n/autoSaver_<lang>.qm for the QGIS UI language, if present.
+
+        Source strings are English; without a matching .qm the UI stays English.
+        """
+        try:
+            locale = QgsApplication.locale()
+        except AttributeError:
+            locale = ""
+        if not locale:
+            store = QSettings()
+            if _to_bool(store.value("locale/overrideFlag", False)):
+                locale = str(store.value("locale/userLocale", ""))
+            else:
+                locale = QLocale.system().name()
+        lang = str(locale).replace("-", "_").split("_")[0].lower()
+        qm = os.path.join(PLUGIN_DIR, "i18n", "autoSaver_{0}.qm".format(lang))
+        if not os.path.exists(qm):
+            return
+        translator = QTranslator()
+        if translator.load(qm) and QCoreApplication.installTranslator(translator):
+            self.translator = translator
+
     def initGui(self):
         icon = QIcon(os.path.join(PLUGIN_DIR, "icon.png"))
-        self.action = QAction(icon, self.tr("AutoSaver beállítások…"), self.iface.mainWindow())
+        self.action = QAction(icon, self.tr("AutoSaver settings…"), self.iface.mainWindow())
         self.action.setObjectName("autoSaverSettingsAction")
-        self.action.setStatusTip(self.tr("AutoSaver beállítása"))
+        self.action.setStatusTip(self.tr("Configure AutoSaver"))
         self.action.triggered.connect(self.run)
         self.iface.addPluginToMenu(self.menu, self.action)
 
         self.statusAction = QAction("AS: —", self.iface.mainWindow())
         self.statusAction.setObjectName("autoSaverStatusAction")
-        self.statusAction.setToolTip(self.tr("Kattintás: az automatikus mentés időzítőjének visszaállítása"))
+        self.statusAction.setToolTip(self.tr("Click to reset the autosave timer"))
         self.statusAction.triggered.connect(self._onStatusClicked)
         self.iface.addToolBarIcon(self.statusAction)
 
@@ -197,6 +226,9 @@ class autoSaver(QObject):
             self.dlg.close()
             self.dlg.deleteLater()
             self.dlg = None
+        if self.translator is not None:
+            QCoreApplication.removeTranslator(self.translator)
+            self.translator = None
 
     # ------------------------------------------------------------------ settings
 
@@ -285,7 +317,7 @@ class autoSaver(QObject):
     def _onInactivityTimeout(self):
         # Single shot: the timer restarts on the next user activity.
         self._autosaveCheck(force_backup=True, prompt=False,
-                            reason=self.tr("Inaktivitás észlelve"))
+                            reason=self.tr("Inactivity detected, autosaving…"))
         self._syncUiTicker()
 
     def _isPromptPending(self):
@@ -302,8 +334,7 @@ class autoSaver(QObject):
 
         if reason:
             self.iface.messageBar().pushMessage(
-                "AutoSaver", reason + self.tr(", automatikus mentés…"),
-                level=Qgis.MessageLevel.Info, duration=3)
+                "AutoSaver", reason, level=Qgis.MessageLevel.Info, duration=3)
 
         if prompt:
             self._promptAutosaveCountdown(force_backup)
@@ -324,15 +355,15 @@ class autoSaver(QObject):
         if project.isDirty():
             if not project.fileName():
                 self._warnOnce("_warnedNoFileName", self.tr(
-                    "A projekt még nincs fájlba mentve, ezért az automatikus mentés "
-                    "nem lehetséges. Mentsd el a projektet egyszer kézzel."))
+                    "The project has not been saved to a file yet, so it cannot be "
+                    "autosaved. Save it manually once."))
             else:
                 self._warnedNoFileName = False
                 if force_backup or self.settings["alternateBak"]:
                     if self._backupFileName() is None:
                         self._warnOnce("_warnedDbProject", self.tr(
-                            "Adatbázisban tárolt projekt: a külön biztonsági fájlba "
-                            "(*.bak.qgz) mentés nem támogatott."))
+                            "Project stored in a database: saving to a separate "
+                            "backup file (*.bak.qgz) is not supported."))
                     else:
                         needs_project = self._changedSinceBackup
                 else:
@@ -353,17 +384,17 @@ class autoSaver(QObject):
         postpone_min = self.settings["postponeMin"]
         self.pendingForceBackup = force_backup
 
-        msg = self.tr("Automatikus mentés {0} másodperc múlva…").format(lead_sec)
+        msg = self.tr("Autosave in {0} seconds…").format(lead_sec)
         if force_backup:
-            msg += self.tr(" (biztonsági másolat)")
+            msg += self.tr(" (backup copy)")
         bar = self.iface.messageBar()
         widget = bar.createMessage("AutoSaver", msg)
 
-        btnSkip = QPushButton(self.tr("Kihagyás most"), widget)
+        btnSkip = QPushButton(self.tr("Skip this time"), widget)
         btnSkip.clicked.connect(self._skipThisAutosave)
         widget.layout().addWidget(btnSkip)
 
-        btnPost = QPushButton(self.tr("Halasztás {0} perc").format(postpone_min), widget)
+        btnPost = QPushButton(self.tr("Postpone {0} min").format(postpone_min), widget)
         btnPost.clicked.connect(self._postponeAutosave)
         widget.layout().addWidget(btnPost)
 
@@ -385,7 +416,7 @@ class autoSaver(QObject):
     def _skipThisAutosave(self):
         self._clearPendingPrompt()
         self._restartCronDefault()
-        self.iface.messageBar().pushMessage("AutoSaver", self.tr("Mentés kihagyva."),
+        self.iface.messageBar().pushMessage("AutoSaver", self.tr("Autosave skipped."),
                                             level=Qgis.MessageLevel.Info, duration=4)
 
     def _postponeAutosave(self):
@@ -394,7 +425,7 @@ class autoSaver(QObject):
         self.cron.start(postpone_min * 60000)
         self._syncUiTicker()
         self.iface.messageBar().pushMessage(
-            "AutoSaver", self.tr("Mentés {0} perccel halasztva.").format(postpone_min),
+            "AutoSaver", self.tr("Autosave postponed by {0} minutes.").format(postpone_min),
             level=Qgis.MessageLevel.Info, duration=4)
 
     def _performAutosaveIfStillPending(self):
@@ -409,7 +440,7 @@ class autoSaver(QObject):
             return
         self._saving = True
         try:
-            self.iface.messageBar().pushMessage("AutoSaver", self.tr("Automatikus mentés…"),
+            self.iface.messageBar().pushMessage("AutoSaver", self.tr("Autosaving…"),
                                                 level=Qgis.MessageLevel.Info, duration=3)
             QApplication.processEvents()
             if self.settings["saveLayerInEditMode"]:
@@ -431,13 +462,13 @@ class autoSaver(QObject):
         for layer in self._modifiedEditableLayers():
             if layer.commitChanges():
                 layer.startEditing()
-                bar.pushMessage("AutoSaver", self.tr("Réteg mentve: {0}").format(layer.name()),
+                bar.pushMessage("AutoSaver", self.tr("Layer saved: {0}").format(layer.name()),
                                 level=Qgis.MessageLevel.Success, duration=3)
             else:
                 # On failure the layer stays in edit mode with its changes intact.
-                errors = "; ".join(layer.commitErrors()) or self.tr("ismeretlen hiba")
+                errors = "; ".join(layer.commitErrors()) or self.tr("unknown error")
                 bar.pushMessage("AutoSaver",
-                                self.tr("Réteg mentése sikertelen: {0} – {1}").format(layer.name(), errors),
+                                self.tr("Failed to save layer {0}: {1}").format(layer.name(), errors),
                                 level=Qgis.MessageLevel.Warning, duration=10)
 
     @staticmethod
@@ -484,11 +515,11 @@ class autoSaver(QObject):
             ok = project.write()
 
         if ok:
-            bar.pushMessage("AutoSaver", self.tr("Projekt mentve: {0}").format(target),
+            bar.pushMessage("AutoSaver", self.tr("Project saved to: {0}").format(target),
                             level=Qgis.MessageLevel.Success, duration=3)
         else:
             bar.pushMessage("AutoSaver",
-                            self.tr("Projekt mentése sikertelen: {0}").format(project.error()),
+                            self.tr("Failed to save project: {0}").format(project.error()),
                             level=Qgis.MessageLevel.Critical, duration=10)
 
     # ------------------------------------------------------------------ toolbar countdown
@@ -504,7 +535,7 @@ class autoSaver(QObject):
     def _setStatusTextIdle(self):
         if self.statusAction:
             self.statusAction.setText("AS: —")
-            self.statusAction.setToolTip(self.tr("Kattintás: az automatikus mentés időzítőjének visszaállítása"))
+            self.statusAction.setToolTip(self.tr("Click to reset the autosave timer"))
 
     def _refreshToolbarCountdown(self):
         """Minutes (rounded up) when >= 60 s, seconds when < 60 s."""
@@ -513,9 +544,9 @@ class autoSaver(QObject):
 
         candidates = []
         if self.cron.isActive() and self.defaultIntervalMs > 0:
-            candidates.append((self.cron.remainingTime(), self.tr("rögzített időköz")))
+            candidates.append((self.cron.remainingTime(), self.tr("fixed interval")))
         if self.inactivityTimer.isActive():
-            candidates.append((self.inactivityTimer.remainingTime(), self.tr("inaktivitás")))
+            candidates.append((self.inactivityTimer.remainingTime(), self.tr("inactivity")))
         candidates = [c for c in candidates if c[0] >= 0]
 
         if not candidates:
@@ -536,7 +567,7 @@ class autoSaver(QObject):
             text = "AS: {0}m".format((ms + 59999) // 60000)
         self.statusAction.setText(text)
         self.statusAction.setToolTip(
-            self.tr("Kattintás: az automatikus mentés időzítőjének visszaállítása")
+            self.tr("Click to reset the autosave timer")
             + " ({0} s, {1})".format(ms // 1000, source))
 
     def _onStatusClicked(self):
@@ -546,7 +577,7 @@ class autoSaver(QObject):
         if self.settings["enableInactivity"]:
             self.inactivityTimer.start()
         self._syncUiTicker()
-        self.iface.messageBar().pushMessage("AutoSaver", self.tr("Időzítő visszaállítva."),
+        self.iface.messageBar().pushMessage("AutoSaver", self.tr("Autosave timer reset."),
                                             level=Qgis.MessageLevel.Info, duration=3)
 
     def _restartCronDefault(self):
