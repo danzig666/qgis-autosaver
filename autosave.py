@@ -588,7 +588,7 @@ class autoSaver(QObject):
             ]))
 
     def _refreshToolbarCountdown(self):
-        """Label: fixed countdown, then inactivity countdown ("AS: 14:32 | 2:15").
+        """Label: fixed countdown above the inactivity countdown ("14:32" / "2:15").
 
         The inactivity part restarts on every user action, so it only counts
         down while you are not working; the fixed part always counts down.
@@ -618,7 +618,8 @@ class autoSaver(QObject):
 
         lines.append(self._lastAutosaveLine())
         lines.append(self.tr("Click to reset the autosave timer"))
-        self.statusWidget.setText(" | ".join(parts))
+        # Two lines: fixed-interval countdown on top, inactivity below.
+        self.statusWidget.setText("\n".join(parts))
         self.statusWidget.setToolTip("\n".join(lines))
 
     def _onStatusContextMenu(self, _pos):
