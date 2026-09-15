@@ -28,6 +28,10 @@
         <translation>Mentés kihagyva.</translation>
     </message>
     <message>
+        <source>Last autosave: none yet</source>
+        <translation>Utolsó automatikus mentés: még nem volt</translation>
+    </message>
+    <message>
         <source>Autosave timer reset.</source>
         <translation>Időzítő visszaállítva.</translation>
     </message>
@@ -42,6 +46,10 @@
     <message>
         <source>Autosaving…</source>
         <translation>Automatikus mentés…</translation>
+    </message>
+    <message>
+        <source>Last autosave: {0} → {1}</source>
+        <translation>Utolsó automatikus mentés: {0} → {1}</translation>
     </message>
     <message>
         <source>The project has not been saved to a file yet, so it cannot be autosaved. Save it manually once.</source>
@@ -60,20 +68,24 @@
         <translation>ismeretlen hiba</translation>
     </message>
     <message>
-        <source>fixed interval</source>
-        <translation>rögzített időköz</translation>
+        <source>Failed to save project: {0}</source>
+        <translation>Projekt mentése sikertelen: {0}</translation>
     </message>
     <message>
-        <source>inactivity</source>
-        <translation>inaktivitás</translation>
+        <source>Inactivity save: done, restarts on your next input</source>
+        <translation>Inaktivitási mentés: megtörtént, a következő tevékenységnél újraindul</translation>
     </message>
     <message>
         <source>Project saved to: {0}</source>
         <translation>Projekt mentve: {0}</translation>
     </message>
     <message>
-        <source>Failed to save project: {0}</source>
-        <translation>Projekt mentése sikertelen: {0}</translation>
+        <source>Autosave is disabled</source>
+        <translation>Az automatikus mentés ki van kapcsolva</translation>
+    </message>
+    <message>
+        <source>Fixed interval: {0} left</source>
+        <translation>Rögzített időköz: {0} van hátra</translation>
     </message>
     <message>
         <source>Project stored in a database: saving to a separate backup file (*.bak.qgz) is not supported.</source>
@@ -86,6 +98,10 @@
     <message>
         <source>Failed to save layer {0}: {1}</source>
         <translation>Réteg mentése sikertelen: {0} – {1}</translation>
+    </message>
+    <message>
+        <source>Inactivity save: {0} without input left</source>
+        <translation>Inaktivitási mentés: {0} tétlenség van hátra</translation>
     </message>
 </context>
 <context>

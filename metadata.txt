@@ -8,12 +8,13 @@ qgisMinimumVersion=3.16
 qgisMaximumVersion=4.99
 supportsQt6=True
 description=Automatic project (and edited layer) saving at a fixed interval or after inactivity
-version=2.6
+version=2.7
 author=Enrico Ferreguti
 email=enricofer@gmail.com
 about=Fork of Enrico Ferreguti's autoSaver. Saves the current project at a fixed interval with a countdown on the message bar (skip / postpone), optionally to a separate *.bak.qgz backup file, and optionally after a period of user inactivity. Modified layers in edit mode can be committed as well. A toolbar label shows the time left until the next autosave.
 
-changelog=2.6 English UI with Hungarian translation, following the QGIS interface language
+changelog=2.7 Toolbar label shows fixed and inactivity countdowns (m:ss, live); tooltip shows both timers and the last autosave date/time; more input types count as activity
+    2.6 English UI with Hungarian translation, following the QGIS interface language
     2.5 Qt6 / QGIS 4 support; inactivity autosave, message-bar countdown with skip/postpone, toolbar countdown; fixed inactivity monitoring stopping after the first prompt, backup mode hiding unsaved changes, postpone interval becoming permanent, hidden layers being ignored, commit failures reported as success; settings dialog rebuilt with validated spin boxes
     2.4 QGIS3 migration issues fixed
 

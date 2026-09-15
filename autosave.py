@@ -17,7 +17,8 @@ and are picked by the QGIS interface language (Hungarian included).
 
 import os
 
-from qgis.PyQt.QtCore import QCoreApplication, QEvent, QLocale, QObject, QSettings, QTimer, QTranslator
+from qgis.PyQt.QtCore import (QCoreApplication, QDateTime, QEvent, QLocale, QObject, QSettings,
+                              QTimer, QTranslator)
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QApplication, QPushButton
 try:
@@ -89,11 +90,12 @@ def save_settings(values):
 class autoSaver(QObject):
     """QGIS plugin implementation."""
 
-    ACTIVITY_EVENTS = (
-        QEvent.Type.KeyPress,
-        QEvent.Type.MouseButtonPress,
-        QEvent.Type.MouseMove,
-        QEvent.Type.Wheel,
+    # Input events that count as user activity for the inactivity timer.
+    ACTIVITY_EVENTS = tuple(
+        getattr(QEvent.Type, name) for name in (
+            "KeyPress", "MouseButtonPress", "MouseMove", "Wheel", "HoverMove",
+            "TabletPress", "TabletMove", "TouchBegin", "TouchUpdate",
+        ) if hasattr(QEvent.Type, name)
     )
 
     def __init__(self, iface):
@@ -114,9 +116,9 @@ class autoSaver(QObject):
         self.cron = QTimer(self)
         self.cron.timeout.connect(self._onCronTimeout)
 
-        # Toolbar refresh timer (10 s normally, 1 s below one minute)
+        # Toolbar refresh timer (1 s while any countdown is running)
         self.uiTicker = QTimer(self)
-        self.uiTicker.setInterval(10000)
+        self.uiTicker.setInterval(1000)
         self.uiTicker.timeout.connect(self._refreshToolbarCountdown)
 
         # Inactivity timer: single shot, restarted on every user activity
@@ -133,6 +135,8 @@ class autoSaver(QObject):
 
         self._saving = False
         self._filterInstalled = False
+        self.lastAutosaveTime = None    # QDateTime of the last successful autosave
+        self.lastAutosaveTarget = ""    # what it wrote (file path or layer names)
         self._warnedNoFileName = False
         self._warnedDbProject = False
 
@@ -443,9 +447,14 @@ class autoSaver(QObject):
             self.iface.messageBar().pushMessage("AutoSaver", self.tr("Autosaving…"),
                                                 level=Qgis.MessageLevel.Info, duration=3)
             QApplication.processEvents()
+            saved_layers = []
             if self.settings["saveLayerInEditMode"]:
-                self._saveLayersInEditMode()
-            self._saveCurrentProject(force_backup)
+                saved_layers = self._saveLayersInEditMode()
+            target = self._saveCurrentProject(force_backup)
+            if target or saved_layers:
+                self.lastAutosaveTime = QDateTime.currentDateTime()
+                self.lastAutosaveTarget = target or ", ".join(saved_layers)
+                self._refreshToolbarCountdown()
         finally:
             self._saving = False
 
@@ -458,10 +467,13 @@ class autoSaver(QObject):
         ]
 
     def _saveLayersInEditMode(self):
+        """Commit modified layers; returns the names of the layers saved."""
         bar = self.iface.messageBar()
+        saved = []
         for layer in self._modifiedEditableLayers():
             if layer.commitChanges():
                 layer.startEditing()
+                saved.append(layer.name())
                 bar.pushMessage("AutoSaver", self.tr("Layer saved: {0}").format(layer.name()),
                                 level=Qgis.MessageLevel.Success, duration=3)
             else:
@@ -470,6 +482,7 @@ class autoSaver(QObject):
                 bar.pushMessage("AutoSaver",
                                 self.tr("Failed to save layer {0}: {1}").format(layer.name(), errors),
                                 level=Qgis.MessageLevel.Warning, duration=10)
+        return saved
 
     @staticmethod
     def _backupFileName():
@@ -485,19 +498,20 @@ class autoSaver(QObject):
         return base + ".bak.qgz"
 
     def _saveCurrentProject(self, force_backup):
+        """Write the project; returns the path written, or None if nothing was."""
         project = QgsProject.instance()
         if not project.isDirty():
-            return
+            return None
         original = project.fileName()
         if not original:
-            return  # already warned in _whatNeedsSaving
+            return None  # already warned in _whatNeedsSaving
 
         bar = self.iface.messageBar()
         use_bak = force_backup or self.settings["alternateBak"]
         if use_bak:
             target = self._backupFileName()
             if target is None:
-                return  # already warned
+                return None  # already warned
             project.setFileName(target)
             try:
                 ok = project.write()
@@ -517,10 +531,11 @@ class autoSaver(QObject):
         if ok:
             bar.pushMessage("AutoSaver", self.tr("Project saved to: {0}").format(target),
                             level=Qgis.MessageLevel.Success, duration=3)
-        else:
-            bar.pushMessage("AutoSaver",
-                            self.tr("Failed to save project: {0}").format(project.error()),
-                            level=Qgis.MessageLevel.Critical, duration=10)
+            return target
+        bar.pushMessage("AutoSaver",
+                        self.tr("Failed to save project: {0}").format(project.error()),
+                        level=Qgis.MessageLevel.Critical, duration=10)
+        return None
 
     # ------------------------------------------------------------------ toolbar countdown
 
@@ -532,43 +547,63 @@ class autoSaver(QObject):
             self.uiTicker.stop()
         self._refreshToolbarCountdown()
 
+    @staticmethod
+    def _formatCountdown(ms):
+        """m:ss, or h:mm:ss above one hour (rounded up to whole seconds)."""
+        secs = max(0, (ms + 999) // 1000)
+        h, rem = divmod(secs, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return "{0}:{1:02d}:{2:02d}".format(h, m, s)
+        return "{0}:{1:02d}".format(m, s)
+
+    def _lastAutosaveLine(self):
+        if self.lastAutosaveTime is None:
+            return self.tr("Last autosave: none yet")
+        when = self.lastAutosaveTime.toString("yyyy-MM-dd HH:mm:ss")
+        return self.tr("Last autosave: {0} → {1}").format(when, self.lastAutosaveTarget)
+
     def _setStatusTextIdle(self):
         if self.statusAction:
             self.statusAction.setText("AS: —")
-            self.statusAction.setToolTip(self.tr("Click to reset the autosave timer"))
+            self.statusAction.setToolTip("\n".join([
+                self.tr("Autosave is disabled"),
+                self._lastAutosaveLine(),
+            ]))
 
     def _refreshToolbarCountdown(self):
-        """Minutes (rounded up) when >= 60 s, seconds when < 60 s."""
+        """Label: fixed countdown, then inactivity countdown ("AS: 14:32 | 2:15").
+
+        The inactivity part restarts on every user action, so it only counts
+        down while you are not working; the fixed part always counts down.
+        """
         if not self.statusAction:
             return
 
-        candidates = []
+        parts = []
+        lines = []
         if self.cron.isActive() and self.defaultIntervalMs > 0:
-            candidates.append((self.cron.remainingTime(), self.tr("fixed interval")))
-        if self.inactivityTimer.isActive():
-            candidates.append((self.inactivityTimer.remainingTime(), self.tr("inactivity")))
-        candidates = [c for c in candidates if c[0] >= 0]
+            text = self._formatCountdown(self.cron.remainingTime())
+            parts.append(text)
+            lines.append(self.tr("Fixed interval: {0} left").format(text))
+        if self.settings["enableInactivity"]:
+            if self.inactivityTimer.isActive():
+                text = self._formatCountdown(self.inactivityTimer.remainingTime())
+                parts.append(text)
+                lines.append(self.tr("Inactivity save: {0} without input left").format(text))
+            else:
+                parts.append("—")
+                lines.append(self.tr("Inactivity save: done, restarts on your next input"))
 
-        if not candidates:
+        if not parts:
             self._setStatusTextIdle()
             self.uiTicker.stop()
             return
 
-        ms, source = min(candidates, key=lambda c: c[0])
-
-        # Adaptive refresh: 1 s ticks below one minute, otherwise 10 s.
-        wanted = 1000 if ms < 60000 else 10000
-        if self.uiTicker.interval() != wanted:
-            self.uiTicker.setInterval(wanted)
-
-        if ms < 60000:
-            text = "AS: {0}s".format((ms + 999) // 1000)
-        else:
-            text = "AS: {0}m".format((ms + 59999) // 60000)
-        self.statusAction.setText(text)
-        self.statusAction.setToolTip(
-            self.tr("Click to reset the autosave timer")
-            + " ({0} s, {1})".format(ms // 1000, source))
+        lines.append(self._lastAutosaveLine())
+        lines.append(self.tr("Click to reset the autosave timer"))
+        self.statusAction.setText("AS: " + " | ".join(parts))
+        self.statusAction.setToolTip("\n".join(lines))
 
     def _onStatusClicked(self):
         """Reset both timers to their full intervals; cancel a pending prompt."""
