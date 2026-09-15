@@ -20,7 +20,8 @@ import os
 from qgis.PyQt.QtCore import (QCoreApplication, QDateTime, QEvent, QLocale, QObject, QSettings,
                               QTimer, QTranslator)
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QApplication, QPushButton
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QApplication, QPushButton, QToolButton
 try:
     from qgis.PyQt.QtGui import QAction        # Qt 6
 except ImportError:
@@ -103,7 +104,8 @@ class autoSaver(QObject):
         self.iface = iface
         self.menu = "AutoSaver"
         self.action = None          # settings entry in the Plugins menu
-        self.statusAction = None    # toolbar countdown label
+        self.statusWidget = None    # compact toolbar countdown button
+        self.statusAction = None    # its QWidgetAction in the toolbar
         self.dlg = None             # settings dialog, created on first use
 
         self.translator = None
@@ -193,11 +195,22 @@ class autoSaver(QObject):
         self.action.triggered.connect(self.run)
         self.iface.addPluginToMenu(self.menu, self.action)
 
-        self.statusAction = QAction("AS: —", self.iface.mainWindow())
-        self.statusAction.setObjectName("autoSaverStatusAction")
-        self.statusAction.setToolTip(self.tr("Click to reset the autosave timer"))
-        self.statusAction.triggered.connect(self._onStatusClicked)
-        self.iface.addToolBarIcon(self.statusAction)
+        # Compact text-only button: small font, no padding. Left click resets
+        # the timers, right click opens the settings.
+        button = QToolButton(self.iface.mainWindow())
+        button.setObjectName("autoSaverStatusButton")
+        button.setAutoRaise(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        font = button.font()
+        size = font.pointSizeF()
+        font.setPointSizeF(min(8.0, max(6.0, size * 0.75)) if size > 0 else 7.0)
+        button.setFont(font)
+        button.setStyleSheet("QToolButton { padding: 0px 2px; margin: 0px; }")
+        button.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        button.customContextMenuRequested.connect(self._onStatusContextMenu)
+        button.clicked.connect(self._onStatusClicked)
+        self.statusWidget = button
+        self.statusAction = self.iface.addToolBarWidget(button)
 
         self._applySettings()
 
@@ -226,6 +239,9 @@ class autoSaver(QObject):
         if self.statusAction:
             self.iface.removeToolBarIcon(self.statusAction)
             self.statusAction = None
+        if self.statusWidget is not None:
+            self.statusWidget.deleteLater()
+            self.statusWidget = None
         if self.dlg is not None:
             self.dlg.close()
             self.dlg.deleteLater()
@@ -564,9 +580,9 @@ class autoSaver(QObject):
         return self.tr("Last autosave: {0} → {1}").format(when, self.lastAutosaveTarget)
 
     def _setStatusTextIdle(self):
-        if self.statusAction:
-            self.statusAction.setText("AS: —")
-            self.statusAction.setToolTip("\n".join([
+        if self.statusWidget is not None:
+            self.statusWidget.setText("AS —")
+            self.statusWidget.setToolTip("\n".join([
                 self.tr("Autosave is disabled"),
                 self._lastAutosaveLine(),
             ]))
@@ -577,7 +593,7 @@ class autoSaver(QObject):
         The inactivity part restarts on every user action, so it only counts
         down while you are not working; the fixed part always counts down.
         """
-        if not self.statusAction:
+        if self.statusWidget is None:
             return
 
         parts = []
@@ -602,8 +618,12 @@ class autoSaver(QObject):
 
         lines.append(self._lastAutosaveLine())
         lines.append(self.tr("Click to reset the autosave timer"))
-        self.statusAction.setText("AS: " + " | ".join(parts))
-        self.statusAction.setToolTip("\n".join(lines))
+        self.statusWidget.setText(" | ".join(parts))
+        self.statusWidget.setToolTip("\n".join(lines))
+
+    def _onStatusContextMenu(self, _pos):
+        """Right click on the toolbar countdown opens the settings."""
+        self.run()
 
     def _onStatusClicked(self):
         """Reset both timers to their full intervals; cancel a pending prompt."""

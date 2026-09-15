@@ -17,12 +17,12 @@ Features
   is backed up to `<project>.bak.qgz` (no prompt).
 * **Layers in edit mode** – optionally modified layers are committed and put
   back into edit mode before the project is saved. Commit errors are reported.
-* **Toolbar label** – `AS: 14:32 | 2:15`: time left until the next fixed-interval
-  save, then the inactivity countdown (which restarts on every mouse/keyboard
-  action, so it only counts down while you are not working). `—` means that
-  timer is off or waiting. The tooltip lists both timers and the date and time
-  of the last autosave. Clicking the label resets both timers and cancels a
-  pending countdown.
+* **Toolbar countdown** – a small `14:32 | 2:15` button: time left until the
+  next fixed-interval save, then the inactivity countdown (which restarts on
+  every mouse/keyboard action, so it only counts down while you are not
+  working). `—` means that timer is off or waiting. The tooltip lists both
+  timers and the date and time of the last autosave. Left click resets both
+  timers and cancels a pending countdown; right click opens the settings.
 
 Nothing is saved while the project is clean, has never been saved to a file, or
 is stored in a database (backup mode only).
